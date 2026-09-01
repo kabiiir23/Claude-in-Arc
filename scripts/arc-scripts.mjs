@@ -8,6 +8,7 @@
 export const ARC_SCRIPTS = [
   'arc-tabgroups.js',
   'arc-auth-proxy.js',
+  'arc-tab-placement.js',
   'arc-sidepanel-shim.js',
   'arc-bridge-interceptor.js',
   'arc-zoom-handler.js',
@@ -26,6 +27,7 @@ export const ARC_SCRIPTS = [
 export const WORKER_IMPORTS = [
   './assets/arc-tabgroups.js',
   './assets/arc-auth-proxy.js',
+  './assets/arc-tab-placement.js',
   './assets/arc-sidepanel-shim.js',
   null,
   './assets/arc-bridge-interceptor.js',

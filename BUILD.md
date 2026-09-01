@@ -47,6 +47,7 @@ in the worker loader, list append) and the script aborts if an anchor is gone.
 |---|---|
 | `test-auth-proxy.mjs` | The panel's credentialed claude.ai fetches route through the worker, and nothing else is touched |
 | `test-native-guard.mjs` | The install guard is decided by behaviour: broken-but-present native API is replaced, working native is left alone, verdict cached, pages never probe |
+| `test-tab-placement.mjs` | Claude's work tabs open in the current window; every panel window stays a window |
 | `test-window-mode.mjs` | Detached window mode: one popup, reused and refocused, toggled by the toolbar, cleaned up on switch-back |
 | `test-build.mjs` | Build invariants: load order, manifest deltas, every Arc script present and parsing, intercepted tool names still exist upstream |
 | `test-arc-tabgroups.mjs` | 22 tab-group sequences transcribed from the upstream bundle |
@@ -121,6 +122,26 @@ also gets first-party cookies without the auth proxy.
 
 There is deliberately no settings UI — adding one means editing Anthropic's
 bundle, which is what this repo's structure exists to avoid.
+
+### Tab placement
+
+Arc Spaces are invisible to the extension API — every Space reports the same
+`windowId` — so there is no way to read, target, or group by them. When Claude
+asks for a tab of its own (`chrome.windows.create({type:'normal'})`) that would
+open a separate Arc window rather than a tab where you are working.
+
+`arc/arc-tab-placement.js` redirects those into the current window, so Claude's
+tabs appear in whatever Space you are in. Panels are exempt: `type:'popup'`, and
+anything on the extension origin, stay real windows — upstream opens
+`sidepanel.html` with no `type` at all, which would otherwise be swept up.
+
+Isolation is unchanged. Which tabs are Claude's is tracked by the emulated tab
+group, not by which window they live in, and tools stay scoped to that group.
+Only the placement changes.
+
+```js
+await __arcTabPlacement.set('new-window')   // back to a separate window
+```
 
 ### Why there is no session restore
 
