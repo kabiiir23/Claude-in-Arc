@@ -78,15 +78,16 @@ await check('default stays injected: sidePanel.open messages the content script'
   assert.equal(messagesToTabs.at(-1)?.msg.type, 'SHOW_INJECTED_PANEL');
 });
 
-await check('window mode: opens a top-level popup with mode=window', async () => {
+await check('window mode: opens a top-level popup on the ordinary panel path', async () => {
   await loadShim();
   await self.__arcPanel.setViewMode('window');
   await chrome.sidePanel.open({ tabId: 42 });
   assert.equal(messagesToTabs.length, 0, 'must not touch the page in window mode');
   assert.equal(created.length, 1);
   assert.equal(created[0].type, 'popup');
-  assert.match(created[0].url, /sidepanel\.html\?mode=window&sessionId=session_/);
-  assert.match(created[0].url, /&tabId=77/, 'the panel needs a target tab or nothing works');
+  assert.match(created[0].url, /sidepanel\.html\?tabId=77/, 'must use the ordinary panel path');
+  assert.equal(/mode=window/.test(created[0].url), false,
+    'mode=window is the task-runner surface and renders no usable chat on its own');
   assert.equal(session.targetTabId, 77, 'targetTabId is the fallback the panel reads in window mode');
 });
 

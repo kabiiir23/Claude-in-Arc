@@ -120,11 +120,13 @@ persists no conversation state, what reopens is a new session. A popup is a
 top-level extension document, so it survives navigation, and being top-level it
 also gets first-party cookies without the auth proxy.
 
-Upstream's window mode is its task-runner surface, so it always sets
-`targetTabId` in `storage.session` before opening the window. The panel
-resolves its tab as *`tabId` URL param, else — in window mode — `targetTabId`*;
-with neither set it has no target and renders nothing usable. The shim sets
-both, pointing at the active tab of the last focused normal window.
+The detached window deliberately does **not** use `?mode=window`. That flag is
+upstream's task-runner surface: it skips the tab-group interstitial, but it also
+drives `windowLaunch` gating and assumes a prompt will be injected over the
+`sessionId` handshake, so opened on its own it renders no usable chat. The
+window uses the ordinary `?tabId=` path instead — the same one the injected
+panel uses, which works — hosted in a window a navigation cannot destroy.
+`targetTabId` is set in `storage.session` as well, for anything that reads it.
 
 In `injected` mode the panel falls back to a window when the target tab cannot
 host a content script. That is not an edge case: Claude's own session tabs are

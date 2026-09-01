@@ -307,12 +307,16 @@ async function openPanelWindow() {
     await chrome.storage.session.set({ targetTabId }).catch(() => {});
   }
 
-  // sessionId is upstream's prompt-delivery handshake token, not a resumable
-  // conversation. One is generated per window purely to satisfy that contract.
-  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  // Deliberately NOT mode=window. That flag is upstream's task-runner surface:
+  // it skips the tab-group interstitial, but it also drives `windowLaunch`
+  // gating and assumes a prompt will be injected over the sessionId handshake,
+  // which is why it renders no usable chat when opened on its own.
+  //
+  // The ordinary ?tabId= path is the one the injected panel uses, and that one
+  // demonstrably works. Same document, same code path — just hosted in a
+  // top-level window that a page navigation cannot destroy.
   const url = chrome.runtime.getURL(
-    `sidepanel.html?mode=window&sessionId=${sessionId}` +
-    (targetTabId !== undefined ? `&tabId=${targetTabId}` : '')
+    `sidepanel.html${targetTabId !== undefined ? `?tabId=${targetTabId}` : ''}`
   );
   const win = await chrome.windows.create({
     url, type: 'popup', width: 500, height: 768, left: 100, top: 100, focused: true
