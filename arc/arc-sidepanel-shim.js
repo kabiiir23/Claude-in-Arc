@@ -318,6 +318,13 @@ chrome.windows?.onRemoved.addListener(async (id) => {
 // Exposed so the options/console can flip modes without a rebuild.
 // ponytail: no settings UI — adding one means editing Anthropic's bundle.
 // `await __arcPanel.setViewMode('window')` is enough until it isn't.
+// Announce the active mode at startup: it decides whether the panel can
+// survive a navigation at all, and it is otherwise invisible.
+_viewMode().then(m => console.log(
+  `[Arc SidePanel Shim] view mode: ${m}` +
+  (m === 'injected' ? '  (iframe in the page — dies on navigation; __arcPanel.setViewMode("window") to detach)' : '  (detached window)')
+)).catch(() => {});
+
 self.__arcPanel = {
   async setViewMode(mode) {
     if (mode !== 'window' && mode !== 'injected') throw new Error("mode must be 'window' or 'injected'");
