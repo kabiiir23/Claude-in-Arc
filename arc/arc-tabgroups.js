@@ -262,22 +262,75 @@ const tabGroups = {
 };
 
 // ─── Install ─────────────────────────────────────────────────────────────────
-function install() {
-  if (chrome.tabGroups && typeof chrome.tabs.group === 'function') {
-    // Real Chromium build with tab group support — leave it alone.
-    return false;
-  }
+const NATIVE_OK_KEY = 'claude_arc_native_tabgroups_ok';
+
+function installEmulation() {
+  if (chrome.tabGroups === tabGroups) return;
   chrome.tabGroups = tabGroups;
   chrome.tabs.group = group;
   chrome.tabs.ungroup = ungroup;
   _wrapOnUpdated();
   _wrapTabs();
   ready();
-  return true;
 }
 
-const _installed = install();
-console.log(`[Arc Tab Groups] ${_installed ? 'emulation installed' : 'native API present, skipped'}`);
+/**
+ * Does the live implementation actually group tabs? Presence of the API proves
+ * nothing: a Chromium fork can expose chrome.tabGroups and still refuse to
+ * group. Claude uses tab groups to give itself a working tab, so a broken
+ * native API means every tool lands on the user's active tab instead — which
+ * in Arc is the tab hosting the injected panel.
+ * Runs on a throwaway background tab.
+ */
+async function probeNative() {
+  let tabId;
+  try {
+    const t = await chrome.tabs.create({ url: 'about:blank', active: false });
+    tabId = t.id;
+    const gid = await chrome.tabs.group({ tabIds: [tabId] });
+    if (typeof gid !== 'number' || gid === NONE) return false;
+    if (!(await chrome.tabGroups.get(gid))) return false;
+    if ((await chrome.tabs.get(tabId)).groupId !== gid) return false;
+    return (await chrome.tabs.query({ groupId: gid })).length === 1;
+  } catch (e) {
+    return false;
+  } finally {
+    if (tabId !== undefined) await chrome.tabs.remove(tabId).catch(() => {});
+  }
+}
+
+function install() {
+  if (!chrome.tabGroups || typeof chrome.tabs.group !== 'function') {
+    installEmulation();
+    return 'emulation installed (no native API)';
+  }
+
+  // Native API is present. Trust it only once it has demonstrably worked. The
+  // verdict is cached, so the probe costs one background tab per install
+  // rather than one per service-worker wake-up.
+  (async () => {
+    let ok;
+    try {
+      const c = await chrome.storage.local.get(NATIVE_OK_KEY);
+      ok = c?.[NATIVE_OK_KEY];
+    } catch (e) {}
+
+    if (typeof ok !== 'boolean') {
+      if (typeof window !== 'undefined') return;  // only the worker may spawn a probe tab
+      ok = await probeNative();
+      try { await chrome.storage.local.set({ [NATIVE_OK_KEY]: ok }); } catch (e) {}
+    }
+
+    if (!ok) {
+      installEmulation();
+      console.log('[Arc Tab Groups] native API present but non-functional - emulation installed');
+    }
+  })();
+
+  return 'native API present, probing';
+}
+
+console.log(`[Arc Tab Groups] ${install()}`);
 
 // No import/export statements: this file is valid both as an ES module (the
 // service worker imports it) and as a classic <script src> (the sidepanel and
@@ -289,8 +342,12 @@ globalThis.__arcTabGroups = {
    * throwaway tab. Presence of the API is not proof it works: a Chromium fork
    * can expose tabGroups and still refuse to group anything.
    */
-  async selfTest() {
-    const out = { impl: chrome.tabGroups?.__arcEmulated ? 'emulated' : 'native' };
+  async selfTest({ recheck = false } = {}) {
+    if (recheck) { try { await chrome.storage.local.remove(NATIVE_OK_KEY); } catch (e) {} }
+    const out = {
+      impl: chrome.tabGroups?.__arcEmulated ? 'emulated' : 'native',
+      cachedNativeVerdict: (await chrome.storage.local.get(NATIVE_OK_KEY).catch(() => ({})))?.[NATIVE_OK_KEY] ?? '(unprobed)'
+    };
     let tabId;
     try {
       const t = await chrome.tabs.create({ url: 'about:blank', active: false });

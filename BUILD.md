@@ -46,6 +46,7 @@ in the worker loader, list append) and the script aborts if an anchor is gone.
 | Harness | Asserts |
 |---|---|
 | `test-auth-proxy.mjs` | The panel's credentialed claude.ai fetches route through the worker, and nothing else is touched |
+| `test-native-guard.mjs` | The install guard is decided by behaviour: broken-but-present native API is replaced, working native is left alone, verdict cached, pages never probe |
 | `test-build.mjs` | Build invariants: load order, manifest deltas, every Arc script present and parsing, intercepted tool names still exist upstream |
 | `test-arc-tabgroups.mjs` | 22 tab-group sequences transcribed from the upstream bundle |
 | `test-real-manager.mjs` | Upstream's own `TabGroupManager`, driven live against the shim |
@@ -68,8 +69,17 @@ avoided the crash but left every tool failing with *"no tab group exists for thi
 session"*. `arc/arc-tabgroups.js` keeps a real registry in `storage.session`
 instead, shared across the worker and the panel.
 
-It no-ops if a native `chrome.tabGroups` is present, so it is safe if Arc ever
-ships the API.
+The guard is **functional, not presence-based**. Arc runs Chromium 152 and does
+expose `chrome.tabGroups`, so a presence check stands the emulation down in
+favour of an API that cannot group anything without a Chrome tab strip. On
+first run the worker probes it on a throwaway background tab and caches the
+verdict; a working native API is left alone, a broken one is replaced.
+
+This matters beyond "multi-tab is missing": Claude uses tab groups to obtain a
+tab of its own. Without one, every tool targets the user's *active* tab — which
+in Arc hosts the injected panel — so navigation destroys the panel and, since
+the panel bundle persists no conversation state, reopening starts a new
+session.
 
 ## Why the auth proxy exists
 
