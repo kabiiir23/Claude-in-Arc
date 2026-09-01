@@ -10,7 +10,7 @@
  * hashed asset on each release, so hardcoding names would break every bump.
  * The script fails loudly if an anchor it expects is missing.
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ARC_SCRIPTS, WORKER_IMPORTS } from './arc-scripts.mjs';
@@ -34,16 +34,27 @@ const SRC = join(vendorRoot, version);
 const OUT = join(ROOT, 'build', version);
 if (!existsSync(SRC)) die(`vendor/${version} not found (have: ${versions.join(', ') || 'none'})`);
 
-// ─── Copy upstream ───────────────────────────────────────────────────────────
-rmSync(OUT, { recursive: true, force: true });
-mkdirSync(OUT, { recursive: true });
-cpSync(SRC, OUT, { recursive: true });
-rmSync(join(OUT, '_metadata'), { recursive: true, force: true });
+// ─── Stage the build ─────────────────────────────────────────────────────────
+// Assembled in a staging directory, then synced into place file-by-file.
+// Deleting build/<version> outright would pull the directory out from under a
+// loaded unpacked extension — Arc sees the manifest vanish and drops the
+// extension, which looks exactly like the patch having broken something.
+const STAGE = join(ROOT, 'build', `.staging-${version}`);
+rmSync(STAGE, { recursive: true, force: true });
+mkdirSync(STAGE, { recursive: true });
+cpSync(SRC, STAGE, { recursive: true });
+rmSync(join(STAGE, '_metadata'), { recursive: true, force: true });
 
-for (const f of ARC_SCRIPTS) cpSync(join(ARC_DIR, f), join(OUT, 'assets', f));
+for (const f of ARC_SCRIPTS) cpSync(join(ARC_DIR, f), join(STAGE, 'assets', f));
 
-const read = p => readFileSync(join(OUT, p), 'utf8');
-const write = (p, s) => writeFileSync(join(OUT, p), s);
+const OUT_FINAL = OUT;
+const relFiles = (dir, base = dir) => readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+  const p = join(dir, e.name);
+  return e.isDirectory() ? relFiles(p, base) : [p.slice(base.length + 1)];
+});
+
+const read = p => readFileSync(join(STAGE, p), 'utf8');
+const write = (p, s) => writeFileSync(join(STAGE, p), s);
 const notes = [];
 
 // ─── manifest.json ───────────────────────────────────────────────────────────
@@ -84,7 +95,7 @@ const notes = [];
   // upstream already declares.
   m.permissions = m.permissions.filter(p => p !== 'declarativeNetRequest');
   delete m.declarative_net_request;
-  rmSync(join(OUT, 'rules.json'), { force: true });
+  rmSync(join(STAGE, 'rules.json'), { force: true });
 
   write('manifest.json', JSON.stringify(m, null, 2) + '\n');
   notes.push(`manifest: ${m.content_scripts.length} content scripts, ${m.permissions.length} permissions`);
@@ -138,7 +149,30 @@ function patchHtml(file, { cmdE = false, tabGroups = false, authProxy = false } 
 // prefixes), so the emulation has to exist in the page context too.
 patchHtml('sidepanel.html', { cmdE: true, tabGroups: true, authProxy: true });
 patchHtml('options.html');
-if (existsSync(join(OUT, 'pairing.html'))) patchHtml('pairing.html');
+if (existsSync(join(STAGE, 'pairing.html'))) patchHtml('pairing.html');
+
+// ─── Sync into place ─────────────────────────────────────────────────────────
+{
+  mkdirSync(OUT_FINAL, { recursive: true });
+  const staged = new Set(relFiles(STAGE));
+
+  for (const rel of staged) {
+    const src = join(STAGE, rel), dst = join(OUT_FINAL, rel);
+    if (existsSync(dst) && statSync(dst).size === statSync(src).size &&
+        readFileSync(dst).equals(readFileSync(src))) continue;
+    mkdirSync(dirname(dst), { recursive: true });
+    cpSync(src, dst);
+  }
+
+  let removed = 0;
+  if (existsSync(OUT_FINAL)) {
+    for (const rel of relFiles(OUT_FINAL)) {
+      if (!staged.has(rel)) { rmSync(join(OUT_FINAL, rel), { force: true }); removed++; }
+    }
+  }
+  rmSync(STAGE, { recursive: true, force: true });
+  notes.push(`synced in place: ${staged.size} files${removed ? `, ${removed} stale removed` : ''}`);
+}
 
 // ─── Report ──────────────────────────────────────────────────────────────────
 console.log(`✓ build/${version}`);
