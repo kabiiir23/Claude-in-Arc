@@ -47,6 +47,7 @@ in the worker loader, list append) and the script aborts if an anchor is gone.
 |---|---|
 | `test-auth-proxy.mjs` | The panel's credentialed claude.ai fetches route through the worker, and nothing else is touched |
 | `test-native-guard.mjs` | The install guard is decided by behaviour: broken-but-present native API is replaced, working native is left alone, verdict cached, pages never probe |
+| `test-window-mode.mjs` | Detached window mode: one popup, reused and refocused, toggled by the toolbar, cleaned up on switch-back |
 | `test-build.mjs` | Build invariants: load order, manifest deltas, every Arc script present and parsing, intercepted tool names still exist upstream |
 | `test-arc-tabgroups.mjs` | 22 tab-group sequences transcribed from the upstream bundle |
 | `test-real-manager.mjs` | Upstream's own `TabGroupManager`, driven live against the shim |
@@ -96,6 +97,40 @@ The service worker has no frame tree, so the same request there is first-party.
 In 1.0.90 that is three calls: `/api/bootstrap` plus two analytics batches.
 Everything substantive uses a Bearer token against api.anthropic.com and is left
 alone, so streaming is unaffected.
+
+## View modes
+
+`claude_arc_view_mode` in `storage.local` selects how the panel is presented:
+
+| Mode | Behaviour |
+|---|---|
+| `injected` (default) | iframe in the page, docked to the right, page reflows around it |
+| `window` | top-level popup window |
+
+Flip it from the service worker console:
+
+```js
+await __arcPanel.setViewMode('window')    // or 'injected'
+```
+
+`window` mode exists because an in-page iframe cannot survive a top-level
+navigation of its host tab: the document is torn down, and since the panel
+persists no conversation state, what reopens is a new session. A popup is a
+top-level extension document, so it survives navigation, and being top-level it
+also gets first-party cookies without the auth proxy.
+
+There is deliberately no settings UI — adding one means editing Anthropic's
+bundle, which is what this repo's structure exists to avoid.
+
+### Why there is no session restore
+
+The panel reads exactly five URL parameters: `mode`, `model`, `q`,
+`skipPermissions`, `tabId`. There is no conversation or session parameter, and
+`conversationId` does not appear in the panel bundle at all — conversations are
+server-side react-query data (`chat_conversation_list`,
+`chat_conversation_tree`). Restoring one would mean patching minified React
+internals and would break on each upstream release. Keeping the panel alive
+(window mode) achieves the same end without that cost.
 
 ## Status
 

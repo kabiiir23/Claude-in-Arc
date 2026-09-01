@@ -253,6 +253,83 @@ _shimLog('H15', 'polyfill_decision', {
 if (chrome.sidePanel?.setPanelBehavior) {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
 }
+
+// ─── Detached window mode ────────────────────────────────────────────────────
+// The injected panel is an iframe inside the page, so any top-level navigation
+// of its host tab destroys it — and the panel keeps no conversation state, so
+// what comes back is a new session. A popup window is a top-level extension
+// document: it survives navigation entirely, and gets first-party cookies
+// without going through the auth proxy.
+//
+// Upstream already uses this shape for scheduled tasks and shortcuts:
+// sidepanel.html?mode=window, opened with chrome.windows.create({type:'popup'}).
+const VIEW_MODE_KEY = 'claude_arc_view_mode';       // 'injected' (default) | 'window'
+const PANEL_WINDOW_KEY = 'claude_arc_panel_window';
+
+async function _viewMode() {
+  try {
+    const r = await chrome.storage.local.get(VIEW_MODE_KEY);
+    return r?.[VIEW_MODE_KEY] === 'window' ? 'window' : 'injected';
+  } catch (e) { return 'injected'; }
+}
+
+async function _livePanelWindowId() {
+  try {
+    const r = await chrome.storage.session.get(PANEL_WINDOW_KEY);
+    const id = r?.[PANEL_WINDOW_KEY];
+    if (typeof id !== 'number') return null;
+    await chrome.windows.get(id);   // throws once the user closes it
+    return id;
+  } catch (e) { return null; }
+}
+
+async function openPanelWindow() {
+  const existing = await _livePanelWindowId();
+  if (existing !== null) {
+    await chrome.windows.update(existing, { focused: true }).catch(() => {});
+    return existing;
+  }
+  // sessionId is upstream's prompt-delivery handshake token, not a resumable
+  // conversation. One is generated per window purely to satisfy that contract.
+  const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  const url = chrome.runtime.getURL(`sidepanel.html?mode=window&sessionId=${sessionId}`);
+  const win = await chrome.windows.create({
+    url, type: 'popup', width: 500, height: 768, left: 100, top: 100, focused: true
+  });
+  if (win?.id !== undefined) {
+    await chrome.storage.session.set({ [PANEL_WINDOW_KEY]: win.id }).catch(() => {});
+  }
+  return win?.id;
+}
+
+async function closePanelWindow() {
+  const id = await _livePanelWindowId();
+  if (id === null) return;
+  await chrome.windows.remove(id).catch(() => {});
+  await chrome.storage.session.remove(PANEL_WINDOW_KEY).catch(() => {});
+}
+
+chrome.windows?.onRemoved.addListener(async (id) => {
+  if (await _livePanelWindowId() === id) {
+    await chrome.storage.session.remove(PANEL_WINDOW_KEY).catch(() => {});
+  }
+});
+
+// Exposed so the options/console can flip modes without a rebuild.
+// ponytail: no settings UI — adding one means editing Anthropic's bundle.
+// `await __arcPanel.setViewMode('window')` is enough until it isn't.
+self.__arcPanel = {
+  async setViewMode(mode) {
+    if (mode !== 'window' && mode !== 'injected') throw new Error("mode must be 'window' or 'injected'");
+    await chrome.storage.local.set({ [VIEW_MODE_KEY]: mode });
+    if (mode === 'injected') await closePanelWindow();
+    return mode;
+  },
+  getViewMode: _viewMode,
+  openPanelWindow,
+  closePanelWindow
+};
+
 const _needsPolyfill = true;
 
 if (_needsPolyfill) {
@@ -262,6 +339,11 @@ if (_needsPolyfill) {
   // Register action click unconditionally so the toolbar icon always works
   chrome.action?.onClicked.addListener(async (tab) => {
     _shimLog('H12', 'action_clicked', { tabId: tab?.id || null, url: tab?.url || '' });
+    if (await _viewMode() === 'window') {
+      const live = await _livePanelWindowId();
+      if (live !== null) await closePanelWindow(); else await openPanelWindow();
+      return;
+    }
     if (!tab?.id) return;
     try {
       await chrome.tabs.sendMessage(tab.id, {
@@ -279,6 +361,7 @@ if (_needsPolyfill) {
     async open(opts) {
       const tabId = opts?.tabId;
       _shimLog('H12', 'sidePanel_open_called', { tabId: tabId || null });
+      if (await _viewMode() === 'window') return void await openPanelWindow();
       if (!tabId) return;
       try {
         await chrome.tabs.sendMessage(tabId, {
@@ -294,6 +377,7 @@ if (_needsPolyfill) {
 
     async close(opts) {
       const tabId = opts?.tabId;
+      if (await _viewMode() === 'window') return void await closePanelWindow();
       if (!tabId) return;
       try {
         await chrome.tabs.sendMessage(tabId, {
