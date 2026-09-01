@@ -1,0 +1,5 @@
+# Upstream extension and the patched output are both generated.
+# `./scripts/fetch-upstream.sh && node scripts/apply-patches.mjs` reproduces them.
+vendor/
+build/
+tests/.restart-*.mjs
