@@ -71,6 +71,7 @@ check('loader: tab-groups emulation imported before the official worker', () => 
   assert.ok(idx('arc-sidepanel-shim.js') >= 0 && idx('arc-sidepanel-shim.js') < official,
     'sidePanel polyfill must precede the official bundle');
   assert.ok(idx('arc-bridge-interceptor.js') > official, 'interceptor must load after the worker');
+  assert.ok(idx('arc-auth-proxy.js') >= 0, 'auth proxy must be in the worker too');
 });
 
 check('sidepanel.html: shims run before the module bundle', () => {
@@ -78,6 +79,8 @@ check('sidepanel.html: shims run before the module bundle', () => {
   const at = s => html.indexOf(s);
   const mod = at('<script type="module"');
   assert.ok(at('arc-tabgroups.js') > -1 && at('arc-tabgroups.js') < mod);
+  assert.ok(at('arc-auth-proxy.js') > -1 && at('arc-auth-proxy.js') < mod,
+    'the fetch wrapper must be installed before the panel bundle makes its first request');
   assert.ok(at('theme-init.js') > -1 && at('theme-init.js') < mod);
   assert.ok(at('cmd-e-fallback.js') > mod, 'cmd-e fallback belongs at the end of the body');
 });
@@ -97,6 +100,16 @@ check('every Arc script shipped and parses', () => {
   for (const f of ARC_SCRIPTS) {
     execFileSync(process.execPath, ['--check', join(DIR, 'assets', f)]);
   }
+});
+
+check('auth proxy leaves the anthropic API alone', () => {
+  // Strip comments first — the file's prose legitimately names the host it avoids.
+  const src = read('assets/arc-auth-proxy.js')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.ok(/credentials[^\n]*'include'/.test(src), 'proxy must gate on credentialed requests');
+  assert.ok(/host === 'claude\.ai'/.test(src), 'host predicate must be claude.ai-only');
+  assert.equal(/anthropic\.com/.test(src), false,
+    'no code path may route the Bearer/streaming host through the worker');
 });
 
 check('no leftover no-op tabGroups stub in the sidePanel shim', () => {

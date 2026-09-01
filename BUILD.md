@@ -45,6 +45,7 @@ in the worker loader, list append) and the script aborts if an anchor is gone.
 
 | Harness | Asserts |
 |---|---|
+| `test-auth-proxy.mjs` | The panel's credentialed claude.ai fetches route through the worker, and nothing else is touched |
 | `test-build.mjs` | Build invariants: load order, manifest deltas, every Arc script present and parsing, intercepted tool names still exist upstream |
 | `test-arc-tabgroups.mjs` | 22 tab-group sequences transcribed from the upstream bundle |
 | `test-real-manager.mjs` | Upstream's own `TabGroupManager`, driven live against the shim |
@@ -69,6 +70,22 @@ instead, shared across the worker and the panel.
 
 It no-ops if a native `chrome.tabGroups` is present, so it is safe if Arc ever
 ships the API.
+
+## Why the auth proxy exists
+
+The panel is an iframe inside an arbitrary page, so a credentialed fetch to
+claude.ai takes its site-for-cookies from the **top-level page**, not the
+extension. claude.ai's session cookies (`sessionKey`, `sessionKeyV3`,
+`lastActiveOrg`) are all `SameSite=Lax`, so they are never sent from that
+context: `/api/bootstrap` returns 200 with `account: null`, and the panel shows
+"Sign in to Claude" no matter how signed in you are. This is not a
+third-party-cookie setting — no browser preference overrides SameSite=Lax.
+
+The service worker has no frame tree, so the same request there is first-party.
+`arc/arc-auth-proxy.js` routes only credentialed claude.ai requests through it.
+In 1.0.90 that is three calls: `/api/bootstrap` plus two analytics batches.
+Everything substantive uses a Bearer token against api.anthropic.com and is left
+alone, so streaming is unaffected.
 
 ## Status
 

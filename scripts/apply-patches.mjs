@@ -105,7 +105,7 @@ const notes = [];
 // ─── HTML pages ──────────────────────────────────────────────────────────────
 // theme-init must run before the deferred module bundles paint; cmd-e-fallback
 // only matters inside the panel iframe.
-function patchHtml(file, { cmdE = false, tabGroups = false } = {}) {
+function patchHtml(file, { cmdE = false, tabGroups = false, authProxy = false } = {}) {
   let html = read(file);
   const anchor = html.indexOf('<script type="module"');
   if (anchor === -1) die(`${file}: no module <script> to anchor against`);
@@ -116,6 +116,7 @@ function patchHtml(file, { cmdE = false, tabGroups = false } = {}) {
   // loaded this way here and `import`ed by the worker.
   const head = [
     ...(tabGroups ? ['<script src="/assets/arc-tabgroups.js"></script>'] : []),
+    ...(authProxy ? ['<script src="/assets/arc-auth-proxy.js"></script>'] : []),
     '<script src="/assets/theme-init.js"></script>'
   ].join(`\n${indent}`);
 
@@ -130,12 +131,12 @@ function patchHtml(file, { cmdE = false, tabGroups = false } = {}) {
   }
 
   write(file, html);
-  notes.push(`${file}: ${[tabGroups && 'arc-tabgroups', 'theme-init', cmdE && 'cmd-e-fallback'].filter(Boolean).join(' + ')}`);
+  notes.push(`${file}: ${[tabGroups && 'arc-tabgroups', authProxy && 'arc-auth-proxy', 'theme-init', cmdE && 'cmd-e-fallback'].filter(Boolean).join(' + ')}`);
 }
 
 // The sidepanel bundle calls chrome.tabGroups directly (group titles, loading
 // prefixes), so the emulation has to exist in the page context too.
-patchHtml('sidepanel.html', { cmdE: true, tabGroups: true });
+patchHtml('sidepanel.html', { cmdE: true, tabGroups: true, authProxy: true });
 patchHtml('options.html');
 if (existsSync(join(OUT, 'pairing.html'))) patchHtml('pairing.html');
 
