@@ -289,10 +289,31 @@ async function openPanelWindow() {
     await chrome.windows.update(existing, { focused: true }).catch(() => {});
     return existing;
   }
+  // The panel resolves the tab it operates on as:
+  //     tabId URL param  ->  else if mode=window: storage.session.targetTabId
+  // Upstream's window mode is the task-runner surface, so it always sets
+  // targetTabId before opening. Opening the window without either leaves the
+  // panel with no target: no chat, nothing works. Set both.
+  let targetTabId;
+  try {
+    const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'], populate: true });
+    targetTabId = win?.tabs?.find(t => t.active)?.id;
+    if (targetTabId === undefined) {
+      const [t] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      targetTabId = t?.id;
+    }
+  } catch (e) {}
+  if (targetTabId !== undefined) {
+    await chrome.storage.session.set({ targetTabId }).catch(() => {});
+  }
+
   // sessionId is upstream's prompt-delivery handshake token, not a resumable
   // conversation. One is generated per window purely to satisfy that contract.
   const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-  const url = chrome.runtime.getURL(`sidepanel.html?mode=window&sessionId=${sessionId}`);
+  const url = chrome.runtime.getURL(
+    `sidepanel.html?mode=window&sessionId=${sessionId}` +
+    (targetTabId !== undefined ? `&tabId=${targetTabId}` : '')
+  );
   const win = await chrome.windows.create({
     url, type: 'popup', width: 500, height: 768, left: 100, top: 100, focused: true
   });

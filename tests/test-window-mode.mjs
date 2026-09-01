@@ -36,13 +36,14 @@ async function loadShim() {
     action: { onClicked: actionClick },
     tabs: {
       async get(id) { return { id, windowId: 1 }; },
-      async query() { return []; },
+      async query() { return [{ id: 77, active: true }]; },
       async sendMessage(tabId, msg) { messagesToTabs.push({ tabId, msg }); return {}; },
       onUpdated: mkEvent(), onRemoved: mkEvent(), onZoomChange: mkEvent()
     },
     windows: {
       async create(opts) { const id = nextWindowId++; windows.set(id, opts); created.push(opts); return { id, ...opts }; },
       async get(id) { if (!windows.has(id)) throw new Error('No window with id'); return { id }; },
+      async getLastFocused() { return { id: 1, type: 'normal', tabs: [{ id: 77, active: true }] }; },
       async update(id, p) { return { id, ...p }; },
       async remove(id) { windows.delete(id); },
       onRemoved: winRemoved
@@ -85,6 +86,8 @@ await check('window mode: opens a top-level popup with mode=window', async () =>
   assert.equal(created.length, 1);
   assert.equal(created[0].type, 'popup');
   assert.match(created[0].url, /sidepanel\.html\?mode=window&sessionId=session_/);
+  assert.match(created[0].url, /&tabId=77/, 'the panel needs a target tab or nothing works');
+  assert.equal(session.targetTabId, 77, 'targetTabId is the fallback the panel reads in window mode');
 });
 
 await check('window mode: reuses and focuses one window, never duplicates', async () => {
