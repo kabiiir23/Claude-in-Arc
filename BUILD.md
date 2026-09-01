@@ -120,6 +120,12 @@ persists no conversation state, what reopens is a new session. A popup is a
 top-level extension document, so it survives navigation, and being top-level it
 also gets first-party cookies without the auth proxy.
 
+In `injected` mode the panel falls back to a window when the target tab cannot
+host a content script. That is not an edge case: Claude's own session tabs are
+`chrome://newtab`, and the tab-group interstitial's "Open chat" button targets
+exactly that tab, so docking there is impossible. The interstitial itself is
+skipped entirely in `window` mode — upstream gates it on `mode !== 'window'`.
+
 There is deliberately no settings UI — adding one means editing Anthropic's
 bundle, which is what this repo's structure exists to avoid.
 

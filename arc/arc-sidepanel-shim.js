@@ -362,7 +362,10 @@ if (_needsPolyfill) {
       const tabId = opts?.tabId;
       _shimLog('H12', 'sidePanel_open_called', { tabId: tabId || null });
       if (await _viewMode() === 'window') return void await openPanelWindow();
-      if (!tabId) return;
+      if (!tabId) {
+        // No tab to dock into at all — a window is the only surface left.
+        return void await openPanelWindow();
+      }
       try {
         await chrome.tabs.sendMessage(tabId, {
           type: 'SHOW_INJECTED_PANEL',
@@ -370,8 +373,13 @@ if (_needsPolyfill) {
         });
         _shimLog('H12', 'sidePanel_open_dispatched', { tabId });
       } catch (e) {
+        // No content script in that tab. Usually a restricted URL, and that is
+        // the *normal* case here rather than an edge one: Claude's own session
+        // tabs are chrome://newtab, and the tab-group interstitial's "Open
+        // chat" button targets exactly that tab. Docking is impossible there,
+        // so fall back to the detached window instead of failing silently.
         _shimLog('H12', 'sidePanel_open_send_fail', { tabId, error: String(e) });
-        // Content script not ready
+        await openPanelWindow();
       }
     },
 

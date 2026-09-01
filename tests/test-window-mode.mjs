@@ -127,6 +127,23 @@ await check('switching back to injected closes the window', async () => {
   assert.equal(messagesToTabs.at(-1)?.msg.type, 'SHOW_INJECTED_PANEL');
 });
 
+await check('injected mode: falls back to a window when the tab has no content script', async () => {
+  await loadShim();
+  // Claude's session tabs are chrome://newtab, where content scripts cannot
+  // run — sendMessage rejects. The tab-group interstitial's "Open chat"
+  // targets exactly such a tab, so failing silently dead-ends the user.
+  chrome.tabs.sendMessage = async () => { throw new Error('Could not establish connection'); };
+  await chrome.sidePanel.open({ tabId: 42 });
+  assert.equal(created.length, 1, 'should have opened the panel window instead');
+  assert.equal(created[0].type, 'popup');
+});
+
+await check('injected mode: open with no tabId opens a window', async () => {
+  await loadShim();
+  await chrome.sidePanel.open({});
+  assert.equal(created.length, 1);
+});
+
 await check('setViewMode rejects nonsense', async () => {
   await loadShim();
   await assert.rejects(() => self.__arcPanel.setViewMode('sideways'));
