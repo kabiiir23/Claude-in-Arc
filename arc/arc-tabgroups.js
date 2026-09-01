@@ -207,6 +207,7 @@ async function ungroup(tabIds) {
 const tabGroups = {
   TAB_GROUP_ID_NONE: NONE,
   Color: COLORS,
+  __arcEmulated: true,   // lets the self-test say which implementation is live
 
   async get(groupId) {
     await ready();
@@ -283,6 +284,35 @@ console.log(`[Arc Tab Groups] ${_installed ? 'emulation installed' : 'native API
 // options pages load it), so one file covers every context.
 // Test seam — ignored by the extension, used by the harnesses.
 globalThis.__arcTabGroups = {
+  /**
+   * Functionally probe whatever chrome.tabGroups is currently live, on a
+   * throwaway tab. Presence of the API is not proof it works: a Chromium fork
+   * can expose tabGroups and still refuse to group anything.
+   */
+  async selfTest() {
+    const out = { impl: chrome.tabGroups?.__arcEmulated ? 'emulated' : 'native' };
+    let tabId;
+    try {
+      const t = await chrome.tabs.create({ url: 'about:blank', active: false });
+      tabId = t.id;
+      const gid = await chrome.tabs.group({ tabIds: [tabId] });
+      out.groupId = gid;
+      out.groupIdUsable = typeof gid === 'number' && gid !== NONE;
+      out.get = await chrome.tabGroups.get(gid).then(g => ({ ok: true, color: g.color }),
+                                                     e => ({ ok: false, error: String(e.message || e) }));
+      out.stampedOnTab = (await chrome.tabs.get(tabId)).groupId;
+      out.queryMembers = (await chrome.tabs.query({ groupId: gid })).length;
+      out.verdict = out.groupIdUsable && out.get.ok &&
+                    out.stampedOnTab === gid && out.queryMembers === 1 ? 'WORKS' : 'BROKEN';
+    } catch (e) {
+      out.error = String(e.message || e);
+      out.verdict = 'BROKEN';
+    } finally {
+      if (tabId !== undefined) await chrome.tabs.remove(tabId).catch(() => {});
+    }
+    return out;
+  },
+
   reset() {
     _nextId = FIRST_GROUP_ID;
     _groups = new Map();
